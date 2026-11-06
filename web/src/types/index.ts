@@ -164,6 +164,10 @@ export interface CandidateInfo {
   role_title: string;
   time_limit_min: number;
   session_status: string;
+  candidate_name?: string;
+  consented_at?: string | null;
+  consent_version?: string | null;
+  data_retention_days?: number;
 }
 
 export interface PaginationMeta {

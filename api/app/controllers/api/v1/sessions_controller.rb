@@ -3,8 +3,8 @@
 module Api
   module V1
     class SessionsController < ApiController
-      authorize_auth_token! :assessor, except: %i[candidate_info audio_complete]
-      skip_before_action :require_tenant!, only: %i[candidate_info audio_complete]
+      authorize_auth_token! :assessor, except: %i[candidate_info audio_complete record_consent]
+      skip_before_action :require_tenant!, only: %i[candidate_info audio_complete record_consent]
 
       before_action :set_session, only: %i[show end_session coverage transcript]
 
@@ -146,10 +146,42 @@ module Api
         end
 
         json_response(
-          session_id:      session.id,
-          role_title:      assessment.name,
-          time_limit_min:  assessment.time_limit_min,
-          session_status:  session.status
+          session_id:          session.id,
+          role_title:          assessment.name,
+          time_limit_min:      assessment.time_limit_min,
+          session_status:      session.status,
+          candidate_name:      session.candidate_name,
+          consented_at:        session.consented_at,
+          consent_version:     session.consent_version,
+          data_retention_days: session.data_retention_days || 30
+        )
+      end
+
+      # POST /sessions/:token/consent  — no JWT, invite token in URL (UU PDP Article 20 & 22)
+      def record_consent
+        session = Session.unscoped.find_by(invite_token: params[:token])
+        return json_error("Invalid or expired invite token", :not_found) unless session
+
+        if session.ended?
+          return json_error("Session is already ended", :unprocessable_entity)
+        end
+
+        consent_version     = params[:consent_version].presence || "UU-PDP-2022-v1.0"
+        consent_locale      = params[:consent_locale].presence || "id"
+        data_retention_days = params[:data_retention_days].presence || 30
+
+        session.update!(
+          consented_at:        Time.current,
+          consent_version:     consent_version,
+          consent_locale:      consent_locale,
+          data_retention_days: data_retention_days
+        )
+
+        json_response(
+          consented:           true,
+          consented_at:        session.consented_at,
+          consent_version:     session.consent_version,
+          message:             "Consent successfully recorded under UU PDP No. 27/2022"
         )
       end
 
@@ -175,6 +207,7 @@ module Api
           started_at:       session.started_at,
           ended_at:         session.ended_at,
           duration_seconds: session.duration_seconds,
+          consented_at:     session.consented_at,
           created_at:       session.created_at
         }
       end

@@ -757,6 +757,11 @@ class AudioWebSocketMiddleware
     return [nil, 'Session has ended'] if session.ended?
     return [nil, 'Session ID mismatch'] if session.id.to_s != session_id
 
+    # UU PDP No. 27/2022 Article 20 & 22: Processing biometric voice stream requires recorded consent
+    unless session.consented_at.present?
+      return [nil, 'Candidate consent under UU PDP No. 27/2022 is required prior to starting the interview session']
+    end
+
     [session, nil]
   end
 

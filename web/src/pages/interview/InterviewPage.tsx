@@ -21,7 +21,8 @@ import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { useAudioWebSocket } from "@/hooks/useAudioWebSocket";
 import { sessionsApi } from "@/services/sessions";
 import HardwareCheck from "@/components/HardwareCheck";
-import { CheckCircle, Mic, MicOff } from "lucide-react";
+import PdpConsentModal from "@/components/interview/PdpConsentModal";
+import { CheckCircle, Mic, MicOff, ShieldCheck } from "lucide-react";
 import type { CandidateInfo, InterviewState, InterviewSpeaker, TranscriptTurn } from "@/types";
 
 export default function InterviewPage() {
@@ -38,6 +39,9 @@ export default function InterviewPage() {
   const connectionLostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [micMuted, setMicMuted] = useState(false);
   const micMutedRef = useRef(false);
+  const [consentGiven, setConsentGiven] = useState(false);
+  const [consentModalOpen, setConsentModalOpen] = useState(false);
+  const [consentSubmitting, setConsentSubmitting] = useState(false);
 
   // Fetch candidate info
   useEffect(() => {
@@ -46,10 +50,35 @@ export default function InterviewPage() {
       .then((res) => {
         setCandidateInfo(res.data);
         setSessionId(res.data.session_id);
-        if (res.data.session_status === "ended") setInterviewState("complete");
+        if (res.data.session_status === "ended") {
+          setInterviewState("complete");
+        } else if (res.data.consented_at) {
+          setConsentGiven(true);
+        } else {
+          setConsentGiven(false);
+          setConsentModalOpen(true);
+        }
       })
       .catch(() => setInterviewState("complete"));
   }, [token]);
+
+  const handleConsent = async (locale: "id" | "en") => {
+    if (!token) return;
+    setConsentSubmitting(true);
+    try {
+      await sessionsApi.recordConsent(token, {
+        consent_locale: locale,
+        consent_version: "UU-PDP-2022-v1.0",
+        data_retention_days: candidateInfo?.data_retention_days || 30,
+      });
+      setConsentGiven(true);
+      setConsentModalOpen(false);
+    } catch (e) {
+      console.error("Failed to record consent", e);
+    } finally {
+      setConsentSubmitting(false);
+    }
+  };
 
   const muteRef = useRef<(() => void) | null>(null);
   const unmuteRef = useRef<(() => void) | null>(null);
@@ -161,6 +190,10 @@ export default function InterviewPage() {
 
   const startInterview = useCallback(async () => {
     if (!sessionId) return;
+    if (!consentGiven) {
+      setConsentModalOpen(true);
+      return;
+    }
     setInterviewState("connecting");
     connect();
     await startCapture();
@@ -168,7 +201,7 @@ export default function InterviewPage() {
     // This prevents mic audio from being sent during AI speech, since separate
     // AudioContexts for capture/playback break the browser's echo cancellation.
     muteRef.current?.();
-  }, [sessionId, connect, startCapture]);
+  }, [sessionId, consentGiven, connect, startCapture]);
 
   const endInterview = useCallback(async () => {
     setInterviewState("ending");
@@ -193,12 +226,49 @@ export default function InterviewPage() {
       <div className="max-w-xl mx-auto px-4 py-8 space-y-6">
         <div className="text-center space-y-1">
           <h1 className="text-xl font-semibold">{candidateInfo?.role_title ?? "AI Interview"}</h1>
+          {candidateInfo?.candidate_name && (
+            <p className="text-sm font-medium text-primary">
+              Kandidat: <span className="font-semibold">{candidateInfo.candidate_name}</span>
+            </p>
+          )}
           {candidateInfo && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {candidateInfo.time_limit_min} minutes
             </p>
           )}
         </div>
+
+        {/* UU PDP Consent Status Banner */}
+        {consentGiven ? (
+          <div className="flex items-center gap-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3.5 py-2.5">
+            <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+            <div className="flex-1 flex items-center justify-between">
+              <span>Persetujuan Privasi Data (UU PDP No. 27/2022) terverifikasi.</span>
+              <button
+                type="button"
+                onClick={() => setConsentModalOpen(true)}
+                className="text-emerald-700 underline hover:text-emerald-900 ml-2 font-medium"
+              >
+                Lihat Ketentuan
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 shrink-0 text-amber-600" />
+              <span>Persetujuan pemrosesan data (UU PDP) diperlukan sebelum memulai.</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs border-amber-300 hover:bg-amber-100"
+              onClick={() => setConsentModalOpen(true)}
+            >
+              Beri Persetujuan
+            </Button>
+          </div>
+        )}
 
         {!hardwareCheckDone ? (
           <div className="space-y-4">
@@ -222,6 +292,15 @@ export default function InterviewPage() {
             </Button>
           </div>
         )}
+
+        <PdpConsentModal
+          open={consentModalOpen}
+          roleTitle={candidateInfo?.role_title ?? "Interview"}
+          candidateName={candidateInfo?.candidate_name}
+          retentionDays={candidateInfo?.data_retention_days || 30}
+          submitting={consentSubmitting}
+          onConsent={handleConsent}
+        />
       </div>
     );
   }
