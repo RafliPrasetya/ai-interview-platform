@@ -76,3 +76,4 @@ describe("UU PDP Candidate Consent & Privacy Gate (PdpConsentModal)", () => {
     expect(screen.getByText(/Pemrosesan Suara & Interaksi AI Real-time/i)).toBeInTheDocument();
   });
 });
+

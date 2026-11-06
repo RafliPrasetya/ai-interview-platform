@@ -51,3 +51,4 @@ describe("Assessment & Vacancy Nested Attributes Deletion Logic", () => {
     expect(payload.filter((p) => !(p as any)._destroy)).toHaveLength(2);
   });
 });
+
